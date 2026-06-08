@@ -1,0 +1,8 @@
+# Deps for the sim-side teleop visualizer (teleop_sim/).
+# Intentionally tiny + pure-wheel so this runs on macOS (Apple Silicon) as well
+# as Linux. This does NOT include the PICO ingestion stack (XRoboToolkit, Linux
+# only) — see install_scripts/install_pico.sh for that.
+mujoco>=3.1
+pyzmq>=25
+numpy>=1.23
+pillow>=10        # optional; a built-in PNG writer is used if absent
