@@ -47,6 +47,10 @@ Meta Quest. Chosen direction (locked):
     Interactive (mjpython on macOS / plain python on Linux) or `--headless` PNG.
   - `fake_pose_publisher.py` — synthetic `pose` stream (reuses the repo's real
     `pack_pose_message`) to test the viewer without a headset.
+  - `replay_recording.py` — republishes a recorded session
+    (`pico_manager_thread_server.py --record <dir>` → `pose_*.npz`) over ZMQ, so
+    you capture ONCE on the Ubuntu box and then iterate on retarget/viz anywhere
+    (incl. the Mac) with no hardware. Tested here against the real field schema.
   - `run_pico_teleop.sh` — launcher + preflight checks for the Ubuntu PICO server.
   - `requirements.txt`, `README.md`.
 - **Verified on macOS, headless:** synthetic stream → decode → MuJoCo render, and a
@@ -84,7 +88,10 @@ python -c "import xrobotoolkit_sdk; print('SDK OK')"
 **Watch for install issues here** (this is the part that couldn't be tested on the
 Mac — the SDK has Linux x86_64 prebuilt libs in
 `external_dependencies/XRoboToolkit-PC-Service-Pybind_X86_and_ARM64`). If the build
-fails, that's the first thing to fix and fold back into the fork.
+fails, that's the first thing to fix and fold back into the fork. The
+`gear_sonic[teleop]` extra pulls `pyzmq, msgpack, pin` (pinocchio, for FK) and
+`pyvista` (the VR 3-pt visualizer; skipped on aarch64) — `pin` is the most likely
+wheel/build snag; on x86_64 Ubuntu it's a prebuilt wheel.
 
 ### 3. Bring up XRoboToolkit + the headset
 - Start the **XRoboToolkit PC service** on the Ubuntu box (from
@@ -104,13 +111,31 @@ Move around — head/hands/waist/feet should drive the rendered G1. This is the 
 target the policy tracks, so "looks right here" == "right for the policy".
 
 ### 5. (Milestone) Close the loop into the policy sim
-After the viewer confirms a good stream, drive the actual tracking policy in sim so
-the G1 *balances* while following you (not just a kinematic pose):
-- Entry point: `gear_sonic/scripts/run_sim_loop.py` (MuJoCo sim of the deployed
-  policy). Confirm how it selects ZMQ streaming input (the C++ deploy uses
-  `deploy.sh --input-type zmq`; find the sim-loop equivalent / `ZMQPoller` wiring).
-- Needs the policy checkpoint (LFS: `*.pt`/`*.onnx`) + the IsaacLab/sim env. This is
-  where the CUDA box matters. `git lfs pull` the policy assets when you get here.
+After the viewer confirms a good stream, drive the actual policy in sim so the G1
+*balances* while following you (not just a kinematic pose).
+
+**Architecture (confirmed by reading the code — read this before diving in):**
+`run_sim_loop.py` is a **DDS-bridged MuJoCo sim**: `unitree_sdk2py_bridge.py`
+makes the sim look like a real G1 over Unitree DDS, "so the WBC policy sees the
+sim as a real robot." The ZMQ inside `gear_sonic/utils/mujoco_sim/` is **only for
+camera images** (`sensor_server.py`, `image_publish_utils.py`, port 5555 camera /
+5558 inference) — it is NOT the pose input. So the loop is:
+
+    PICO → ZMQ `pose` → [policy process] → Unitree DDS → run_sim_loop (MuJoCo)
+
+The pose stream feeds the **policy**, not the sim directly. Two candidate policy
+paths to try (both need policy checkpoints via `git lfs pull` of `*.onnx`/`*.pt`,
+the `unitree_sdk2py` DDS stack (CycloneDDS), and Linux+CUDA):
+  - **gear_sonic_deploy** (the SONIC tracking policy): the C++ deploy
+    (`gear_sonic_deploy/`, built via `deploy.sh`) reads the ZMQ `pose` and drives
+    the robot; point it at the sim instead of the real robot (`--input-type zmq`).
+  - **decoupled_wbc** (`gear_sonic/utils/mujoco_sim/configs.py`:
+    `wbc_model_path="policy/stand.onnx,policy/walk.onnx"`,
+    `wbc_policy_class="G1DecoupledWholeBodyPolicy"`): the WBC controller already
+    wired into `run_sim_loop.py` over DDS.
+- First decide which policy is the teleop target (SONIC tracking = the
+  gear_sonic_deploy path), then wire `pico server → that policy → DDS sim`. This is
+  the real "fully functional in sim" milestone and is Linux/CUDA/checkpoint-gated.
 
 ## Technical reference (so you don't re-derive it)
 

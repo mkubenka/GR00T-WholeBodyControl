@@ -98,4 +98,7 @@ height (`--root-height`).
 ## Files
 - `zmq_pose_viz.py` — ZMQ `pose` subscriber → MuJoCo G1 renderer (interactive or headless PNG).
 - `fake_pose_publisher.py` — synthetic `pose` stream for testing without hardware.
+- `replay_recording.py` — republish a recorded session (`--record` `pose_*.npz`) over ZMQ.
+- `run_pico_teleop.sh` — launcher + preflight for the Ubuntu PICO server.
 - `requirements.txt` — viewer deps (macOS/Linux).
+- `HANDOFF.md` — full runbook for continuing on the Linux box.
